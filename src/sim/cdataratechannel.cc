@@ -39,6 +39,7 @@ Register_Class(cDatarateChannel);
 simsignal_t cDatarateChannel::channelBusySignal;
 simsignal_t cDatarateChannel::messageSentSignal;
 simsignal_t cDatarateChannel::messageDiscardedSignal;
+simsignal_t cDatarateChannel::utilizationSignal;
 
 cDatarateChannel::cDatarateChannel(const char *name) : cChannel(name)
 {
@@ -59,10 +60,13 @@ void cDatarateChannel::initialize()
     channelBusySignal = registerSignal("channelBusy");
     messageSentSignal = registerSignal("messageSent");
     messageDiscardedSignal = registerSignal("messageDiscarded");
+    utilizationSignal = registerSignal("utilization");
 
     rereadPars();
 
     emit(channelBusySignal, 0);
+    if(enableUtilization)
+        updateUtilization(simTime(), 0);
 }
 
 void cDatarateChannel::rereadPars()
@@ -71,6 +75,9 @@ void cDatarateChannel::rereadPars()
     datarate = par("datarate");
     ber = par("ber");
     per = par("per");
+    enableUtilization = par("enableUtilization");
+    utilizationSamplingDuration = par("utilizationSamplingDuration");
+    utilizationEmitRate = par("utilizationEmitRate");
 
     bool hasDatarate = !std::isnan(datarate) && datarate != 0;
     if (delay < SIMTIME_ZERO)
@@ -340,11 +347,49 @@ void cDatarateChannel::processPacket(cPacket *pkt, const SendOptions& options, s
         if (oldFinishTime < t) {
             cTimestampedValue tmp(oldFinishTime, (intval_t)0);
             emit(channelBusySignal, &tmp);
+            if(enableUtilization)
+                updateUtilization(tmp.timestamp, tmp.l);
         }
         if (channelFinishTime > t) {
             cTimestampedValue tmp(t, (intval_t)1);
             emit(channelBusySignal, &tmp);
+            if(enableUtilization)
+                updateUtilization(tmp.timestamp, tmp.l);
         }
+    }
+}
+
+void cDatarateChannel::updateUtilization(simtime_t timestamp, int busyValue){
+    if(firstCall) {
+        lastBusyValue = busyValue;
+        lastSignalTime = timestamp;
+        firstCall = false;
+        return;
+    }
+    if (busyValue != lastBusyValue){
+        if (intervalLength >= utilizationSamplingDuration) {
+            simtime_t removeTime = intervalTimes.front();
+            intervalLength -= removeTime;
+            intervalTimes.pop();
+            double removeVal = intervalValues.front();
+            intervalValues.pop();
+            nonNormalizedUtilization -= removeVal * SIMTIME_DBL(removeTime);
+        }
+    
+        simtime_t timeSinceLastSignal = timestamp - lastSignalTime;
+        intervalTimes.push(timeSinceLastSignal);
+        intervalValues.push(lastBusyValue);
+        nonNormalizedUtilization += SIMTIME_DBL(timeSinceLastSignal) * lastBusyValue;
+        lastSignalTime = timestamp;
+        lastBusyValue = busyValue;
+        intervalLength += timeSinceLastSignal;
+    
+        utilization = nonNormalizedUtilization / SIMTIME_DBL(intervalLength);
+    }
+    
+    if (simTime() > lastEmitTime + utilizationEmitRate){
+        lastEmitTime = simTime();
+        emit(utilizationSignal, utilization);
     }
 }
 
@@ -353,6 +398,8 @@ void cDatarateChannel::finish()
     if (mode != UNCHECKED && mayHaveListeners(channelBusySignal)) {
         cTimestampedValue tmp(std::min(channelFinishTime, simTime()), (intval_t)0);
         emit(channelBusySignal, &tmp);
+        if(enableUtilization)
+            updateUtilization(tmp.timestamp, tmp.l);
     }
 }
 

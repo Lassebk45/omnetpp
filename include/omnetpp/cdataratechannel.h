@@ -18,6 +18,7 @@
 
 #include "cchannel.h"
 #include "csimulation.h"
+#include <queue>
 
 namespace omnetpp {
 
@@ -72,6 +73,7 @@ class SIM_API cDatarateChannel : public cChannel //implies noncopyable
     static simsignal_t channelBusySignal;
     static simsignal_t messageSentSignal;
     static simsignal_t messageDiscardedSignal;
+    static simsignal_t utilizationSignal;
 
   public:
     /**
@@ -112,7 +114,20 @@ class SIM_API cDatarateChannel : public cChannel //implies noncopyable
     double datarate = 0; // data rate
     double ber = 0;      // bit error rate
     double per = 0;      // packet error rate
-
+    bool enableUtilization = false;
+    simtime_t utilizationSamplingDuration;
+    simtime_t utilizationEmitRate;
+    simtime_t lastEmitTime = SIMTIME_ZERO;
+    
+    double utilization = 0;
+    double nonNormalizedUtilization = 0;
+    std::queue<simtime_t> intervalTimes;
+    std::queue<double> intervalValues;
+    bool firstCall = true;
+    int lastBusyValue;
+    simtime_t lastSignalTime = SIMTIME_ZERO;
+    simtime_t intervalLength = SIMTIME_ZERO;
+    
     Mode mode = SINGLE;
 
     // data of the last/ongoing transmission (only for mode=SINGLE)
@@ -126,6 +141,8 @@ class SIM_API cDatarateChannel : public cChannel //implies noncopyable
     simtime_t channelFinishTime; // for both SINGLE and MULTI
 
   private:
+    void updateUtilization(simtime_t timestamp, int busyValue);
+    
     // internal: checks whether parameters have been set up
     void checkState() const  {if (!parametersFinalized()) throw cRuntimeError(this, E_PARAMSNOTREADY);}
 
