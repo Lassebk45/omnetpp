@@ -1374,5 +1374,17 @@ cValue nedf_dup(cComponent *contextComponent, cValue argv[], int argc)
     return obj->dup();
 }
 
+DEF(nedf_linear,
+    "quantity linear(quantity a, quantity b)",
+    "continuous",
+    "Returns a linear sendinterval based on the starting value and the growth rate")
+
+cValue nedf_linear(cComponent *contextComponent, cValue argv[], int argc)
+{
+    simtime_t startTime = contextComponent->par("startTime");
+    double xValue = (simTime() - startTime).dbl();
+    return cValue(argv[0].doubleValueRaw() * xValue + argv[1].doubleValueRaw(), argv[0].getUnit());
+}
+
 }  // namespace omnetpp
 
